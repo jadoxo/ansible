@@ -1,0 +1,24 @@
+---
+# tasks file for helloworld
+
+- name: copy helloworld  js file
+  copy:
+    src: helloworld.js
+    dst: /home/ec2-user/
+    owner: ec2-user
+    group: ec2-user
+    mode: 0644
+  notify: restart hellowworld
+
+- name: task copy helloworld conf
+  copy:
+    src: hellowworld.conf
+    dst: /etc/init/
+    owner: root
+    group: root
+    mode: 0644
+
+- name: start JS service
+  service:
+    name: helloworld
+    state: started
