@@ -144,7 +144,7 @@ t.add_resource(ec2.Route(
 t.add_resource(ec2.SubnetRouteTableAssociation(
 	'trosubroutabass',
 	SubnetId=Ref('trosub'),
-	RouteTableId=Ref('routab'),
+	RouteTableId=Ref('troroutab'),
 ))
 """Network ACL CREATION"""
 
