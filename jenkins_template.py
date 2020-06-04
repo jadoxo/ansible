@@ -1,3 +1,5 @@
+from troposphere.ec2 import VPC,NetworkAclEntry,PortRange
+
 """Import Template tools"""
 from troposphere import (
 Base64,
@@ -16,6 +18,7 @@ Template,
 """Import AWS services"""
 from troposphere import (
 ec2,
+Tags,
 )
 
 """[MODIFIED Jenkins] Import :  AWAC & tropossphere:IAM"""
@@ -33,16 +36,37 @@ Statement,
 )
 from awacs.sts import AssumeRole
 
-"""  [MODIFIED Jenkins]   Define variables"""
+"""GIT Variables"""
+
 GithubAccount = "jadoxo"
 GithubAnsibleURL = "https://github.com/{}/ansible".format(GithubAccount)
+
+"""  [MODIFIED Jenkins]   Define variables"""
+
 ApplicationName = "Jenkins"
 ApplicationPort = "8080"
 t = Template()
 
+
+"""Ansible Pull command"""
+AnsiblePullCmd = "/usr/local/bin/ansible-pull -U {} {}.yml -i localhost".format(
+	GithubAnsibleURL,
+	ApplicationName
+)
+
+"""Ansible /User Data : configure to get it from ansible"""
+
+ud = Base64(Join('\n', [
+	"#!/bin/bash",
+	"yum install --enablerepo=epel -y git",
+	"pip install ansible",
+	AnsiblePullCmd,
+	"echo '*/10 * * * * {}' > /etc/cron.d/ansiblepull".format(AnsiblePullCmd)
+]))
+
 """[MODIFIED Jenkins] Add Role to Jenkins server"""
 t.add_resource(Role(
-	"Role",
+	'trorol',
 	AssumeRolePolicyDocument=Policy(
 		Statement=[
 			Statement(
@@ -56,9 +80,9 @@ t.add_resource(Role(
 
 """[Modified Jenkins] Add a role to Jenkins server"""
 t.add_resource(InstanceProfile(
-	"InstanceProfile",
+	'InstanceProfile',
 	Path="/",
-	Roles=[Ref("Role")]
+	Roles=[Ref('trorol')]
 ))
 
 """Template description"""
@@ -72,135 +96,91 @@ t.add_parameter(Parameter(
 	Type='AWS::EC2::KeyPair::KeyName',
 	ConstraintDescription='must be the name of an existing EC2 KeyPair',
 ))
-
 """ VPC : creation"""
-t.add_resource(ec2.Vpc(
-	'tro_vpc',
+
+t.add_resource(VPC(
+	'trovpc',
 	EnableDnsSupport=True,
-	EnableDnsHostname=True,
-	CidrBlock='192.168.0.0/16',
-	Tags=Tags(
-		Stack_Name=Ref('AWS::StackName'),
-		Stack_ID=Ref('AWS::StackId'),
-		Stack_Region=Ref('AWS::Region'),
-	)
+	EnableDnsHostnames=True,
+	CidrBlock='172.31.0.0/16',
 ))
-
 """Subnet : Creation"""
+
 t.add_resource(ec2.Subnet(
-	'tro_sub',
+	'trosub',
 	CidrBlock='192.168.100.0/24',
-	VpcId=Ref(tropo_vpc),
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
-)
-
-"""I-GW : creation"""
-t.add_resource(ec2.InternetGateway(
-	'tro_int_gat',
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
+	VpcId=Ref('trovpc'),
 ))
+"""I-GW : creation"""
 
-
+t.add_resource(ec2.InternetGateway(
+	'trointgat',
+))
 """VpcGatewayAttachment"""
-t.add_resource(ec2.VpcGatewayAttachment(
-	'tro_vpc_gat_att',
-	VpcIp=Ref(Tropo Internet Gateway),
-	GatewayId=Ref(tro_int_gat),
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
+
+t.add_resource(ec2.VPCGatewayAttachment(
+	'trovpcgatatt',
+	VpcId=Ref('trovpc'),
+	InternetGatewayId=Ref('trointgat'),
 ))
 """Route Table : creation"""
-t.add_resource(ec2.RouteTable(
-	'tro_rou_tab',
-	VpcId=Ref(tro_vpc),
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
-))
 
+t.add_resource(ec2.RouteTable(
+	'troroutab',
+	VpcId=Ref('trovpc'),
+))
 """Route : creation"""
+
 t.add_resource(ec2.Route(
-	'tro_rou',
+	'trorou',
 	DestinationCidrBlock='0.0.0.0/0',
-	GatewayId=Ref(tro_int_gat),
-	DependsOn=Ref(tro_vpc_int_gat_att),
-	RouteTableId=Ref(tro_rou_tab),
+	GatewayId=Ref('trointgat'),
+	DependsOn=Ref('trovpcintgatatt'),
+	RouteTableId=Ref('troroutab'),
 	
 ))
-
 """Subnet & Route Table association"""
+
 t.add_resource(ec2.SubnetRouteTableAssociation(
-	'tro_sub_rou_tab_ass',
-	SubnetId=Ref(tro_sub),
-	RouteTableId=Ref(rou_tab),
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
+	'trosubroutabass',
+	SubnetId=Ref('trosub'),
+	RouteTableId=Ref('routab'),
 ))
-
 """Network ACL CREATION"""
-t.add_resource(ec2.NetworkAcl(
-	'tro_net_acl',
-	VpcId=Ref(tro_vpc),
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
-))
 
+t.add_resource(ec2.NetworkAcl(
+	'tronetacl',
+	VpcId=Ref('trovpc'),
+))
 """ Network ACL ENTRY 1 """
+
 t.add_resource(ec2.NetworkAclEntry(
-	'tro_net_acl_ent_1',
-	NetworkAclId=Ref(tro_net_acl),
+	'tronetaclent1',
+	NetworkAclId=Ref('tronetacl'),
 	RuleNumber='100',
 	RuleAction='allow',
 	Protocol='-1',
 	CidrBlock='0.0.0.0/0',
-	PortRange=PortRange(To='80',From='80'),
+	PortRange=PortRange(To="80", From="80"),
 	Egress=False,
-	
-        )
 ))
-
-
 """ Network ACL ENTRY 2 """
+
 t.add_resource(ec2.NetworkAclEntry(
-        'tro_net_acl_ent_1',
-        NetworkAclId=Ref(tro_net_acl),
+        'tronetaclent2',
+        NetworkAclId=Ref('tronetacl'),
         RuleNumber='200',
         RuleAction='Deny',
         Protocol='6',
         CidrBlock='0.0.0.0/0',
-        PortRange=PortRange(To='22',From='22'),
-        Egress=False,
+        PortRange=PortRange(To="22",From="22"),
+        Egress='false',
 ))
 
-
-
 """Security Group creation"""
+
 t.add_resource(ec2.SecurityGroup(
-	"TropoSecuritygroup",
-	Tags=Tags(
-                Stack_Name=Ref('AWS::StackName'),
-                Stack_ID=Ref('AWS::StackId'),
-                Stack_Region=Ref('AWS::Region'),
-        )
+	'trosecgro',
 	GroupDescription="Allow SSH and TCP/{} access".format(ApplicationPort),
 	SecurityGroupIngress=[
 		ec2.SecurityGroupRule(
@@ -220,7 +200,7 @@ t.add_resource(ec2.SecurityGroup(
 ))
 
 
-"""UserData value"""
+"""UserData value
 
 ud = Base64(Join('\n', [
 "#!/bin/bash",
@@ -229,19 +209,19 @@ ud = Base64(Join('\n', [
 "wget http://bit.ly/2vVvT18 -O /etc/init/helloworld.conf",
 "start helloworld"
 ]))
+"""
 
 """[Modified jenkins] EC2 Resource creation Creation"""
 
 t.add_resource(
 	ec2.Instance(
-		'tro_ins',
+		'troins',
 		InstanceType='t2.micro',
-		SecurityGroups=[Ref('TropoSecuritygroup')],
+		SecurityGroups=[Ref('trosecgro')],
 		ImageId='ami-a4c7edb2',
 		KeyName=Ref('keypair'),
 		UserData=ud,
-		IamInstanceProfile=Ref('InstanceProfile')
-	)
+		IamInstanceProfile=Ref('InstanceProfile'),
 ))
 
 t.add_output(
